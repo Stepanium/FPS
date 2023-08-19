@@ -4,8 +4,36 @@
 #include <vector>
 #include <fstream>
 #include <strstream>
+#include <algorithm>
+
+#include <bit>
+#include <limits>
+#include <cstdint>
 
 // g++ -o main main.cpp -lX11 -lGL -lpthread -lpng -lstdc++fs -std=c++17
+
+float FastInverseSquareRoot(float x)
+{
+    /*float f = x;
+    long i = *(long *)&x;  // bits from float memory box to long memory box
+
+    // log2(1 + x) ~ bit representation of x
+    // i = 1 / 2^23 * (Mantissa_x + 2^23 * Exponent) + error - 127
+    // you can shift bits in long
+    i = 0x5f3759df - (i >> 1);
+
+    f = *(float *)i;
+    f = f * (1.5f - (0.5f * x * f * f));  // Newton's iteration first step
+    return f;*/
+    union
+    {
+        float f;
+        uint32_t i;
+    } conv = {.f = x};
+    conv.i = 0x5f3759df - (conv.i >> 1);
+    conv.f *= 1.5F - (x * 0.5F * conv.f * conv.f);
+    return conv.f;
+}
 
 struct vec3d
 {
@@ -57,6 +85,11 @@ struct vec3d
         this->z *= rhs;
     }
 
+    float GetLengthSqared()
+    {
+        return x * x + y * y + z * z;
+    }
+
     float GetLength()
     {
         return sqrtf(x * x + y * y + z * z);
@@ -64,10 +97,11 @@ struct vec3d
 
     void Normalize()
     {
-        float reverseL = 1.0f / GetLength();
-        this->x *= reverseL;
-        this->y *= reverseL;
-        this->z *= reverseL;
+        // float reverseL = 1.0f / GetLength();
+        *(this) *= FastInverseSquareRoot(GetLengthSqared());
+        // this->x *= reverseL;
+        // this->y *= reverseL;
+        // this->z *= reverseL;
     }
 
     float DotProduct(vec3d rhs)
@@ -89,13 +123,15 @@ struct triangle
 {
     vec3d points[3];
 
+    olc::Pixel color;
+
     vec3d getNormal()
     {
         vec3d line1 = points[1] - points[0];
         vec3d line2 = points[2] - points[0];
         vec3d normal;
         normal = line1.CrossProduct(line2);
-        normal.Normalize();
+        normal *= FastInverseSquareRoot(normal.GetLengthSqared());
         return normal;
     }
 };
@@ -106,6 +142,37 @@ struct mesh
 
     bool LoadFromFile(std::string filename)
     {
+        std::ifstream f(filename);
+        if (!f.is_open())
+            return false;
+
+        // Local cache of vertecies
+        std::vector<vec3d> verts;
+
+        while (!f.eof())
+        {
+            char line[128];
+            f.getline(line, 128);
+
+            std::strstream s;
+            s << line;
+
+            char junk;
+            if (line[0] == 'v')
+            {
+                vec3d v;
+                s >> junk >> v.x >> v.y >> v.z;
+                verts.push_back(v);
+            }
+            else if (line[0] == 'f')
+            {
+                triangle t;
+                int f[3];
+                s >> junk >> f[0] >> f[1] >> f[2];
+                tris.push_back({verts[f[0] - 1], verts[f[1] - 1], verts[f[2] - 1]});
+            }
+        }
+        return true;
     }
 };
 
@@ -155,9 +222,8 @@ void MakeRotationMatrixAroundZ(mat4x4 &input, float angle)
     input.m[3][3] = 1.0f;
 }
 
-void MakeProjectionMatrix(mat4x4 &input, float aspectRatio, float f, float zNear, float zFar)
+void MakeProjectionMatrix(mat4x4 &input, float aspectRatio, float f, float q, float zNear)
 {
-    float q = zFar / (zFar - zNear);
     input.m[0][0] = aspectRatio * f;
     input.m[1][1] = f;
     input.m[2][2] = q;
@@ -190,7 +256,7 @@ private:
     float q;
 
     vec3d vCamera;
-    vec3d vLight;
+    vec3d light_direction;
 
     float fTheta;
 
@@ -203,33 +269,7 @@ public:
 private:
     bool OnUserCreate() override
     {
-        meshCube.tris = {
-
-            // SOUTH
-            {0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f},
-            {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f},
-
-            // EAST
-            {1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f},
-            {1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f},
-
-            // NORTH
-            {1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f},
-            {1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f},
-
-            // WEST
-            {0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f, 0.0f},
-            {0.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-
-            // TOP
-            {0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f},
-            {0.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f},
-
-            // BOTTOM
-            {1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f},
-            {1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f},
-
-        };
+        meshCube.LoadFromFile("VideoShip.obj");
 
         aspectRatio = (float)ScreenHeight() / (float)ScreenWidth();
 
@@ -241,8 +281,8 @@ private:
         q = zFar / (zFar - zNear);
 
         fTheta = 0.0f;
-        vLight = {-1.0f, -1.0f, -1.0f};
-        vLight.Normalize();
+        light_direction = {0.0f, 0.0f, -1.0f};
+        light_direction.Normalize();
 
         return true;
     }
@@ -253,7 +293,9 @@ private:
 
         Clear(olc::BLACK);
 
-        // Drawing triangles
+        std::vector<triangle> vTrianglesToRaster;
+
+        // Calculating triangles
         for (auto tri : meshCube.tris)
         {
             triangle triRotatedX, triRotatedXY, triRotatedXYZ, triTranslated, triProjected;
@@ -278,9 +320,9 @@ private:
 
             triTranslated = triRotatedXYZ;
 
-            triTranslated.points[0].z += 3.0f;
-            triTranslated.points[1].z += 3.0f;
-            triTranslated.points[2].z += 3.0f;
+            triTranslated.points[0].z += 8.0f;
+            triTranslated.points[1].z += 8.0f;
+            triTranslated.points[2].z += 8.0f;
 
             vec3d normal = triTranslated.getNormal();
             vec3d ray = triTranslated.points[0] - vCamera;
@@ -288,10 +330,19 @@ private:
             // If visible from camera's point of view
             if (normal.DotProduct(ray) < 0.0f)
             {
+                // Lighting
+                float brightness = normal.DotProduct(light_direction);
+                if (brightness < 0.0f)
+                    brightness = 0.0f;
+                // brightness *= 0.9f;
+                // brightness += 0.1;
+                triTranslated.color = olc::Pixel(255 * brightness, 200 * brightness, 200 * brightness);
+
                 // Project from 3D to 2D space
                 triProjected.points[0] = ProjectToScreen(triTranslated.points[0], matProj);
                 triProjected.points[1] = ProjectToScreen(triTranslated.points[1], matProj);
                 triProjected.points[2] = ProjectToScreen(triTranslated.points[2], matProj);
+                triProjected.color = triTranslated.color;
 
                 // Translate to the center of the screen
                 triProjected.points[0].x += 1.0f;
@@ -309,23 +360,31 @@ private:
                 triProjected.points[2].x *= 0.5f * (float)ScreenWidth();
                 triProjected.points[2].y *= 0.5f * (float)ScreenHeight();
 
-                float brightness = normal.DotProduct(vLight);
-                if (brightness < 0.0f)
-                    brightness = 0.0f;
-                //brightness *= 0.9f;
-                //brightness += 0.1;
+                vTrianglesToRaster.push_back(triProjected);
+            }
 
+            // Sorting triangles back to frontby distance from camera
+
+            std::sort(vTrianglesToRaster.begin(), vTrianglesToRaster.end(), [](triangle &A, triangle &B)
+                      {
+                float z1 = (A.points[0].z + A.points[1].z + A.points[2].z) * 0.333333;
+                float z2 = (B.points[0].z + B.points[1].z + B.points[2].z) * 0.333333;
+                return z1 > z2; });
+
+            // Drawing sorted triangles
+            for (auto &triProjected : vTrianglesToRaster)
+            {
                 FillTriangle(
                     triProjected.points[0].x, triProjected.points[0].y,
                     triProjected.points[1].x, triProjected.points[1].y,
                     triProjected.points[2].x, triProjected.points[2].y,
-                    olc::Pixel(255 * brightness, 200 * brightness, 200 * brightness));
+                    triProjected.color);
 
-                DrawTriangle(
+                /*DrawTriangle(
                     triProjected.points[0].x, triProjected.points[0].y,
                     triProjected.points[1].x, triProjected.points[1].y,
                     triProjected.points[2].x, triProjected.points[2].y,
-                    olc::BLACK);
+                    olc::BLACK);*/
             }
         }
 
@@ -336,7 +395,7 @@ private:
 int main()
 {
     FPS game;
-    if (game.Construct(256, 256, 4, 4))
+    if (game.Construct(640, 480, 1, 1))
         game.Start();
 
     return 0;
