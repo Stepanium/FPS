@@ -1,134 +1,21 @@
 #define OLC_PGE_APPLICATION
 
 #include "olcPixelGameEngine.h"
-#include <vector>
-#include <fstream>
-#include <strstream>
+
 #include <algorithm>
-
-#include <bit>
-#include <limits>
-#include <cstdint>
-
+#include "MyMath.h"
 // g++ -o main main.cpp -lX11 -lGL -lpthread -lpng -lstdc++fs -std=c++17
-
-float FastInverseSquareRoot(float x)
-{
-    /*float f = x;
-    long i = *(long *)&x;  // bits from float memory box to long memory box
-
-    // log2(1 + x) ~ bit representation of x
-    // i = 1 / 2^23 * (Mantissa_x + 2^23 * Exponent) + error - 127
-    // you can shift bits in long
-    i = 0x5f3759df - (i >> 1);
-
-    f = *(float *)i;
-    f = f * (1.5f - (0.5f * x * f * f));  // Newton's iteration first step
-    return f;*/
-    union
-    {
-        float f;
-        uint32_t i;
-    } conv = {.f = x};
-    conv.i = 0x5f3759df - (conv.i >> 1);
-    conv.f *= 1.5F - (x * 0.5F * conv.f * conv.f);
-    return conv.f;
-}
-
-struct vec3d
-{
-    float x = 0.0f, y = 0.0f, z = 0.0f;
-
-    const vec3d operator+(const vec3d rhs)
-    {
-        vec3d out;
-        out.x = x + rhs.x;
-        out.y = y + rhs.y;
-        out.z = z + rhs.z;
-        return out;
-    }
-
-    const vec3d operator-(const vec3d rhs)
-    {
-        vec3d out;
-        out.x = x - rhs.x;
-        out.y = y - rhs.y;
-        out.z = z - rhs.z;
-        return out;
-    }
-
-    void operator+=(const vec3d rhs)
-    {
-        this->x += rhs.x;
-        this->y += rhs.y;
-        this->z += rhs.z;
-    }
-
-    void operator-=(const vec3d rhs)
-    {
-        this->x -= rhs.x;
-        this->y -= rhs.y;
-        this->z -= rhs.z;
-    }
-
-    void operator/=(const float rhs)
-    {
-        this->x /= rhs;
-        this->y /= rhs;
-        this->z /= rhs;
-    }
-
-    void operator*=(const float rhs)
-    {
-        this->x *= rhs;
-        this->y *= rhs;
-        this->z *= rhs;
-    }
-
-    float GetLengthSqared()
-    {
-        return x * x + y * y + z * z;
-    }
-
-    float GetLength()
-    {
-        return sqrtf(x * x + y * y + z * z);
-    }
-
-    void Normalize()
-    {
-        // float reverseL = 1.0f / GetLength();
-        *(this) *= FastInverseSquareRoot(GetLengthSqared());
-        // this->x *= reverseL;
-        // this->y *= reverseL;
-        // this->z *= reverseL;
-    }
-
-    float DotProduct(vec3d rhs)
-    {
-        return x * rhs.x + y * rhs.y + z * rhs.z;
-    }
-
-    vec3d CrossProduct(vec3d rhs)
-    {
-        vec3d output;
-        output.x = y * rhs.z - z * rhs.y;
-        output.y = z * rhs.x - x * rhs.z;
-        output.z = x * rhs.y - y * rhs.x;
-        return output;
-    }
-};
 
 struct triangle
 {
-    vec3d points[3];
+    vec3d p[3];
 
     olc::Pixel color;
 
     vec3d getNormal()
     {
-        vec3d line1 = points[1] - points[0];
-        vec3d line2 = points[2] - points[0];
+        vec3d line1 = p[1] - p[0];
+        vec3d line2 = p[2] - p[0];
         vec3d normal;
         normal = line1.CrossProduct(line2);
         normal *= FastInverseSquareRoot(normal.GetLengthSqared());
@@ -176,89 +63,25 @@ struct mesh
     }
 };
 
-struct mat4x4
-{
-    float m[4][4] = {0.0f};
-    float w = 1.0f;
-
-    vec3d operator*(const vec3d rhs)
-    {
-        vec3d output;
-        output.x = m[0][0] * rhs.x + m[0][1] * rhs.y + m[0][2] * rhs.z + m[0][3];
-        output.y = m[1][0] * rhs.x + m[1][1] * rhs.y + m[1][2] * rhs.z + m[1][3];
-        output.z = m[2][0] * rhs.x + m[2][1] * rhs.y + m[2][2] * rhs.z + m[2][3];
-        w = m[3][0] * rhs.x + m[3][1] * rhs.y + m[3][2] * rhs.z + m[3][3];
-        return output;
-    }
-};
-
-void MakeRotationMatrixAroundX(mat4x4 &input, float angle)
-{
-    input.m[0][0] = 1.0f;
-    input.m[1][1] = cosf(angle);
-    input.m[2][1] = sinf(angle);
-    input.m[2][2] = cosf(angle);
-    input.m[1][2] = -sinf(angle);
-    input.m[3][3] = 1.0f;
-}
-
-void MakeRotationMatrixAroundY(mat4x4 &input, float angle)
-{
-    input.m[1][1] = 1.0f;
-    input.m[0][0] = cosf(angle);
-    input.m[0][2] = sinf(angle);
-    input.m[2][2] = cosf(angle);
-    input.m[2][0] = -sinf(angle);
-    input.m[3][3] = 1.0f;
-}
-
-void MakeRotationMatrixAroundZ(mat4x4 &input, float angle)
-{
-    input.m[2][2] = 1.0f;
-    input.m[0][0] = cosf(angle);
-    input.m[1][0] = sinf(angle);
-    input.m[1][1] = cosf(angle);
-    input.m[0][1] = -sinf(angle);
-    input.m[3][3] = 1.0f;
-}
-
-void MakeProjectionMatrix(mat4x4 &input, float aspectRatio, float f, float q, float zNear)
-{
-    input.m[0][0] = aspectRatio * f;
-    input.m[1][1] = f;
-    input.m[2][2] = q;
-    input.m[2][3] = -zNear * q;
-    input.m[3][2] = 1.0f;
-    input.m[3][3] = 0.0f;
-}
-
-vec3d ProjectToScreen(vec3d input, mat4x4 matProj)
-{
-    vec3d output = matProj * input;
-
-    if (matProj.w != 0.0f)
-    {
-        float wInverse = 1.0f / matProj.w;
-        output *= wInverse;
-    }
-    return output;
-}
-
 class FPS : public olc::PixelGameEngine
 {
 private:
     mesh meshCube;
     float aspectRatio;
     float FoV;
-    float f;
     float zNear;
     float zFar;
-    float q;
 
     vec3d vCamera;
+    vec3d vLookDir;
+    vec3d vUp;
+    vec3d vRight;
+    float fYaw;
+    float fTheta;
+
     vec3d light_direction;
 
-    float fTheta;
+    mat4x4 matProj;
 
 public:
     FPS()
@@ -269,96 +92,146 @@ public:
 private:
     bool OnUserCreate() override
     {
-        meshCube.LoadFromFile("VideoShip.obj");
+        meshCube.LoadFromFile("axis.obj");
 
         aspectRatio = (float)ScreenHeight() / (float)ScreenWidth();
-
         FoV = 90.0f;
-        f = 1.0f / tanf(FoV * 0.5f * M_PI / 180.f);
-
         zNear = 0.1f;
         zFar = 1000.0f;
-        q = zFar / (zFar - zNear);
+        // Making projection matrix
+        matProj = Matrix_MakeProjection(aspectRatio, FoV, zNear, zFar);
 
+        vCamera = {0.0f, 0.0f, 0.0f};
         fTheta = 0.0f;
-        light_direction = {0.0f, 0.0f, -1.0f};
-        light_direction.Normalize();
+        fYaw = 0.0f;
+        vLookDir = {0.0f, 0.0f, 1.0f};
+        vUp = {0.0f, 1.0f, 0.0f};
+        vRight = {1.0f, 0.0f, 0.0f};
 
         return true;
     }
 
     bool OnUserUpdate(float fElapsedTime) override
     {
-        fTheta += fElapsedTime;
 
-        Clear(olc::BLACK);
+        // INPUT//
+        // TRANSLATION//
+        if (GetKey(olc::Key::W).bHeld)
+            vCamera += vLookDir * (8.0f * fElapsedTime);
+        if (GetKey(olc::Key::S).bHeld)
+            vCamera -= vLookDir * (8.0f * fElapsedTime);
+        if (GetKey(olc::Key::A).bHeld)
+            vCamera += vRight * (8.0f * fElapsedTime);
+        if (GetKey(olc::Key::D).bHeld)
+            vCamera -= vRight * (8.0f * fElapsedTime);
+        //////
+
+        // ROTATION//
+        if (GetKey(olc::Key::LEFT).bHeld)
+            fTheta -= 1.0f * fElapsedTime;
+        if (GetKey(olc::Key::RIGHT).bHeld)
+            fTheta += 1.0f * fElapsedTime;
+        if (GetKey(olc::Key::UP).bHeld)
+            fYaw -= 1.0f * fElapsedTime;
+        if (GetKey(olc::Key::DOWN).bHeld)
+            fYaw += 1.0f * fElapsedTime;
+        //////
+
+        // Object transltion and rotation
+        mat4x4 matRotX, matRotY, matRotXY, matTrans, matWorld;
+        matRotX = Matrix_MakeRotationAroundX(0.0f);
+        matRotY = Matrix_MakeRotationAroundY(0.0f);
+        matRotXY = matRotY * matRotX;
+        matTrans = Matrix_MakeTranslation({0.0f, 0.0f, 15.0f});
+        matWorld = matTrans * matRotXY;
+        //////
+
+        // CAMERA//
+        //  Camera translation and rotation
+        matRotX = Matrix_MakeRotationAroundX(fYaw);
+        matRotY = Matrix_MakeRotationAroundY(fTheta);
+        matRotXY = matRotY * matRotX;
+
+        // New forward direction
+        vLookDir = {0.0f, 0.0f, 1.0f};
+        vLookDir = matRotXY * vLookDir;
+
+        // New upward direction
+        vUp = {0.0f, 1.0f, 0.0f};
+        vec3d a = vLookDir * vUp.DotProduct(vLookDir);
+        vUp -= a;
+        vUp.Normalize();
+
+        // New rightside direction
+        vRight = vUp.CrossProduct(vLookDir);
+        //////
+
+        // MATRICIES FOR TRIS//
+        // making inverse matrix for camera movement
+        mat4x4 matCamera = Matrix_MakePointAt(vCamera, vCamera + vLookDir, vUp);
+        mat4x4 matView = Matrix_MakeInverseForRotTrans(matCamera);
+        //////
+
+        // LIGHTING DIR//
+        light_direction = {0.0f, 0.0f, -1.0f};
+        light_direction.Normalize();
+        //////
 
         std::vector<triangle> vTrianglesToRaster;
 
+        Clear(olc::BLACK);
         // Calculating triangles
         for (auto tri : meshCube.tris)
         {
-            triangle triRotatedX, triRotatedXY, triRotatedXYZ, triTranslated, triProjected;
+            triangle triTransformed, triProjected, triViewed;
 
-            mat4x4 matRotX, matRotY, matRotZ, matProj;
-            MakeRotationMatrixAroundX(matRotX, fTheta);
-            MakeRotationMatrixAroundY(matRotY, fTheta * 0.1f);
-            MakeRotationMatrixAroundZ(matRotZ, fTheta * 0.3f);
-            MakeProjectionMatrix(matProj, aspectRatio, f, q, zNear);
+            // World Matrix Transform
+            triTransformed.p[0] = matWorld * tri.p[0];
+            triTransformed.p[1] = matWorld * tri.p[1];
+            triTransformed.p[2] = matWorld * tri.p[2];
 
-            triRotatedX.points[0] = matRotX * tri.points[0];
-            triRotatedX.points[1] = matRotX * tri.points[1];
-            triRotatedX.points[2] = matRotX * tri.points[2];
-
-            triRotatedXY.points[0] = matRotY * triRotatedX.points[0];
-            triRotatedXY.points[1] = matRotY * triRotatedX.points[1];
-            triRotatedXY.points[2] = matRotY * triRotatedX.points[2];
-
-            triRotatedXYZ.points[0] = matRotZ * triRotatedXY.points[0];
-            triRotatedXYZ.points[1] = matRotZ * triRotatedXY.points[1];
-            triRotatedXYZ.points[2] = matRotZ * triRotatedXY.points[2];
-
-            triTranslated = triRotatedXYZ;
-
-            triTranslated.points[0].z += 8.0f;
-            triTranslated.points[1].z += 8.0f;
-            triTranslated.points[2].z += 8.0f;
-
-            vec3d normal = triTranslated.getNormal();
-            vec3d ray = triTranslated.points[0] - vCamera;
-            ray.Normalize();
+            vec3d normal = triTransformed.getNormal();
+            vec3d vCameraRay = triTransformed.p[0] - vCamera;
+            vCameraRay.Normalize();
             // If visible from camera's point of view
-            if (normal.DotProduct(ray) < 0.0f)
+            if (normal.DotProduct(vCameraRay) < 0.0f)
             {
                 // Lighting
                 float brightness = normal.DotProduct(light_direction);
-                if (brightness < 0.0f)
-                    brightness = 0.0f;
-                // brightness *= 0.9f;
-                // brightness += 0.1;
-                triTranslated.color = olc::Pixel(255 * brightness, 200 * brightness, 200 * brightness);
+                if (brightness < 0.05f)
+                    triViewed.color = olc::Pixel(20, 20, 40);
+                else
+                    triViewed.color = olc::Pixel(255 * brightness, 200 * brightness, 200 * brightness);
+
+                triViewed.p[0] = matView * triTransformed.p[0];
+                triViewed.p[1] = matView * triTransformed.p[1];
+                triViewed.p[2] = matView * triTransformed.p[2];
 
                 // Project from 3D to 2D space
-                triProjected.points[0] = ProjectToScreen(triTranslated.points[0], matProj);
-                triProjected.points[1] = ProjectToScreen(triTranslated.points[1], matProj);
-                triProjected.points[2] = ProjectToScreen(triTranslated.points[2], matProj);
-                triProjected.color = triTranslated.color;
+                triProjected.p[0] = matProj * triViewed.p[0];
+                triProjected.p[1] = matProj * triViewed.p[1];
+                triProjected.p[2] = matProj * triViewed.p[2];
+                if (triProjected.p[0].w != 0.0f)
+                    triProjected.p[0] /= triProjected.p[0].w;
+                if (triProjected.p[1].w != 0.0f)
+                    triProjected.p[1] /= triProjected.p[1].w;
+                if (triProjected.p[2].w != 0.0f)
+                    triProjected.p[2] /= triProjected.p[2].w;
+                triProjected.color = triViewed.color;
 
                 // Translate to the center of the screen
-                triProjected.points[0].x += 1.0f;
-                triProjected.points[0].y += 1.0f;
-                triProjected.points[1].x += 1.0f;
-                triProjected.points[1].y += 1.0f;
-                triProjected.points[2].x += 1.0f;
-                triProjected.points[2].y += 1.0f;
+                vec3d vOffsetView = {1.0f, 1.0f, 0.0f};
+                triProjected.p[0] += vOffsetView;
+                triProjected.p[1] += vOffsetView;
+                triProjected.p[2] += vOffsetView;
 
                 // Scale to screen width and height
-                triProjected.points[0].x *= 0.5f * (float)ScreenWidth();
-                triProjected.points[0].y *= 0.5f * (float)ScreenHeight();
-                triProjected.points[1].x *= 0.5f * (float)ScreenWidth();
-                triProjected.points[1].y *= 0.5f * (float)ScreenHeight();
-                triProjected.points[2].x *= 0.5f * (float)ScreenWidth();
-                triProjected.points[2].y *= 0.5f * (float)ScreenHeight();
+                triProjected.p[0].x *= 0.5f * (float)ScreenWidth();
+                triProjected.p[0].y *= 0.5f * (float)ScreenHeight();
+                triProjected.p[1].x *= 0.5f * (float)ScreenWidth();
+                triProjected.p[1].y *= 0.5f * (float)ScreenHeight();
+                triProjected.p[2].x *= 0.5f * (float)ScreenWidth();
+                triProjected.p[2].y *= 0.5f * (float)ScreenHeight();
 
                 vTrianglesToRaster.push_back(triProjected);
             }
@@ -367,24 +240,24 @@ private:
 
             std::sort(vTrianglesToRaster.begin(), vTrianglesToRaster.end(), [](triangle &A, triangle &B)
                       {
-                float z1 = (A.points[0].z + A.points[1].z + A.points[2].z) * 0.333333;
-                float z2 = (B.points[0].z + B.points[1].z + B.points[2].z) * 0.333333;
-                return z1 > z2; });
+                float z1 = (A.p[0].z + A.p[1].z + A.p[2].z) * 0.333333;
+                float z2 = (B.p[0].z + B.p[1].z + B.p[2].z) * 0.333333;
+                return z1 < z2; });
 
             // Drawing sorted triangles
             for (auto &triProjected : vTrianglesToRaster)
             {
                 FillTriangle(
-                    triProjected.points[0].x, triProjected.points[0].y,
-                    triProjected.points[1].x, triProjected.points[1].y,
-                    triProjected.points[2].x, triProjected.points[2].y,
+                    triProjected.p[0].x, triProjected.p[0].y,
+                    triProjected.p[1].x, triProjected.p[1].y,
+                    triProjected.p[2].x, triProjected.p[2].y,
                     triProjected.color);
 
-                /*DrawTriangle(
-                    triProjected.points[0].x, triProjected.points[0].y,
-                    triProjected.points[1].x, triProjected.points[1].y,
-                    triProjected.points[2].x, triProjected.points[2].y,
-                    olc::BLACK);*/
+                DrawTriangle(
+                    triProjected.p[0].x, triProjected.p[0].y,
+                    triProjected.p[1].x, triProjected.p[1].y,
+                    triProjected.p[2].x, triProjected.p[2].y,
+                    olc::BLACK);
             }
         }
 
@@ -395,7 +268,7 @@ private:
 int main()
 {
     FPS game;
-    if (game.Construct(640, 480, 1, 1))
+    if (game.Construct(360, 360, 2, 2))
         game.Start();
 
     return 0;
