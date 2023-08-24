@@ -6,63 +6,6 @@
 #include "MyMath.h"
 // g++ -o main main.cpp -lX11 -lGL -lpthread -lpng -lstdc++fs -std=c++17
 
-struct triangle
-{
-    vec3d p[3];
-
-    olc::Pixel color;
-
-    vec3d getNormal()
-    {
-        vec3d line1 = p[1] - p[0];
-        vec3d line2 = p[2] - p[0];
-        vec3d normal;
-        normal = line1.CrossProduct(line2);
-        normal *= FastInverseSquareRoot(normal.GetLengthSqared());
-        return normal;
-    }
-};
-
-struct mesh
-{
-    std::vector<triangle> tris;
-
-    bool LoadFromFile(std::string filename)
-    {
-        std::ifstream f(filename);
-        if (!f.is_open())
-            return false;
-
-        // Local cache of vertecies
-        std::vector<vec3d> verts;
-
-        while (!f.eof())
-        {
-            char line[128];
-            f.getline(line, 128);
-
-            std::strstream s;
-            s << line;
-
-            char junk;
-            if (line[0] == 'v')
-            {
-                vec3d v;
-                s >> junk >> v.x >> v.y >> v.z;
-                verts.push_back(v);
-            }
-            else if (line[0] == 'f')
-            {
-                triangle t;
-                int f[3];
-                s >> junk >> f[0] >> f[1] >> f[2];
-                tris.push_back({verts[f[0] - 1], verts[f[1] - 1], verts[f[2] - 1]});
-            }
-        }
-        return true;
-    }
-};
-
 class FPS : public olc::PixelGameEngine
 {
 private:
@@ -198,42 +141,50 @@ private:
             {
                 // Lighting
                 float brightness = normal.DotProduct(light_direction);
-                if (brightness < 0.05f)
-                    triViewed.color = olc::Pixel(20, 20, 40);
-                else
-                    triViewed.color = olc::Pixel(255 * brightness, 200 * brightness, 200 * brightness);
+                int sign = 1;
+                float color = brightness * brightness * 0.5f;
+                brightness = sqrtf((brightness + 1.0f) * 0.5f);
+                (sign) ? triViewed.color = olc::Pixel(200 * brightness + 55 * color, 200 * brightness, 200 * brightness) :
+                triViewed.color = olc::Pixel(200 * brightness, 200 * brightness, 200 * brightness + 55 * color);
 
                 triViewed.p[0] = matView * triTransformed.p[0];
                 triViewed.p[1] = matView * triTransformed.p[1];
                 triViewed.p[2] = matView * triTransformed.p[2];
 
-                // Project from 3D to 2D space
-                triProjected.p[0] = matProj * triViewed.p[0];
-                triProjected.p[1] = matProj * triViewed.p[1];
-                triProjected.p[2] = matProj * triViewed.p[2];
-                if (triProjected.p[0].w != 0.0f)
-                    triProjected.p[0] /= triProjected.p[0].w;
-                if (triProjected.p[1].w != 0.0f)
-                    triProjected.p[1] /= triProjected.p[1].w;
-                if (triProjected.p[2].w != 0.0f)
-                    triProjected.p[2] /= triProjected.p[2].w;
-                triProjected.color = triViewed.color;
+                int nClippedTriangles = 0;
+                triangle clipped[2];
+                nClippedTriangles = Triangle_ClipAgainstPlane({0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, triViewed, clipped[0], clipped[1]);
 
-                // Translate to the center of the screen
-                vec3d vOffsetView = {1.0f, 1.0f, 0.0f};
-                triProjected.p[0] += vOffsetView;
-                triProjected.p[1] += vOffsetView;
-                triProjected.p[2] += vOffsetView;
+                for (int n = 0; n < nClippedTriangles; n++)
+                {
+                    // Project from 3D to 2D space
+                    triProjected.p[0] = matProj * clipped[n].p[0];
+                    triProjected.p[1] = matProj * clipped[n].p[1];
+                    triProjected.p[2] = matProj * clipped[n].p[2];
+                    if (triProjected.p[0].w != 0.0f)
+                        triProjected.p[0] /= triProjected.p[0].w;
+                    if (triProjected.p[1].w != 0.0f)
+                        triProjected.p[1] /= triProjected.p[1].w;
+                    if (triProjected.p[2].w != 0.0f)
+                        triProjected.p[2] /= triProjected.p[2].w;
+                    triProjected.color = clipped[n].color;
 
-                // Scale to screen width and height
-                triProjected.p[0].x *= 0.5f * (float)ScreenWidth();
-                triProjected.p[0].y *= 0.5f * (float)ScreenHeight();
-                triProjected.p[1].x *= 0.5f * (float)ScreenWidth();
-                triProjected.p[1].y *= 0.5f * (float)ScreenHeight();
-                triProjected.p[2].x *= 0.5f * (float)ScreenWidth();
-                triProjected.p[2].y *= 0.5f * (float)ScreenHeight();
+                    // Translate to the center of the screen
+                    vec3d vOffsetView = {1.0f, 1.0f, 0.0f};
+                    triProjected.p[0] += vOffsetView;
+                    triProjected.p[1] += vOffsetView;
+                    triProjected.p[2] += vOffsetView;
 
-                vTrianglesToRaster.push_back(triProjected);
+                    // Scale to screen width and height
+                    triProjected.p[0].x *= 0.5f * (float)ScreenWidth();
+                    triProjected.p[0].y *= 0.5f * (float)ScreenHeight();
+                    triProjected.p[1].x *= 0.5f * (float)ScreenWidth();
+                    triProjected.p[1].y *= 0.5f * (float)ScreenHeight();
+                    triProjected.p[2].x *= 0.5f * (float)ScreenWidth();
+                    triProjected.p[2].y *= 0.5f * (float)ScreenHeight();
+
+                    vTrianglesToRaster.push_back(triProjected);
+                }
             }
 
             // Sorting triangles back to frontby distance from camera
@@ -245,19 +196,50 @@ private:
                 return z1 < z2; });
 
             // Drawing sorted triangles
-            for (auto &triProjected : vTrianglesToRaster)
+            for (auto &triToRaster : vTrianglesToRaster)
             {
-                FillTriangle(
-                    triProjected.p[0].x, triProjected.p[0].y,
-                    triProjected.p[1].x, triProjected.p[1].y,
-                    triProjected.p[2].x, triProjected.p[2].y,
-                    triProjected.color);
+                triangle clipped[2];
+                std::list<triangle> listTriangles;
+                listTriangles.push_back(triToRaster);
+                int nNewTriangles = 1;
 
-                DrawTriangle(
-                    triProjected.p[0].x, triProjected.p[0].y,
-                    triProjected.p[1].x, triProjected.p[1].y,
-                    triProjected.p[2].x, triProjected.p[2].y,
-                    olc::BLACK);
+                for (int p = 0; p < 4; p++)
+                {
+                    int nTrisToAdd = 0;
+                    while (nNewTriangles > 0)
+                    {
+                        triangle test = listTriangles.front();
+                        listTriangles.pop_front();
+                        nNewTriangles--;
+
+                        switch (p)
+                        {
+                        case 0:
+                            nTrisToAdd = Triangle_ClipAgainstPlane({0.0f, 0.0f, 0.0f}, {0.0f, 1.0f, 0.0f}, test, clipped[0], clipped[1]);
+                            break;
+                        case 1:
+                            nTrisToAdd = Triangle_ClipAgainstPlane({0.0f, (float)ScreenHeight() - 1.0f, 0.0f}, {0.0f, -1.0f, 0.0f}, test, clipped[0], clipped[1]);
+                            break;
+                        case 2:
+                            nTrisToAdd = Triangle_ClipAgainstPlane({0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, test, clipped[0], clipped[1]);
+                            break;
+                        case 3:
+                            nTrisToAdd = Triangle_ClipAgainstPlane({(float)ScreenWidth() - 1.0f, 0.0f, 0.0f}, {-1.0f, 0.0f, 0.0f}, test, clipped[0], clipped[1]);
+                            break;
+                        }
+
+                        for (int w = 0; w < nTrisToAdd; w++)
+                            listTriangles.push_back(clipped[w]);
+                    }
+                    nNewTriangles = listTriangles.size();
+                }
+
+                // Draw the transformed, viewed, clipped, projected, sorted, clipped triangles
+                for (auto &t : listTriangles)
+                {
+                    FillTriangle(t.p[0].x, t.p[0].y, t.p[1].x, t.p[1].y, t.p[2].x, t.p[2].y, t.color);
+                    DrawTriangle(t.p[0].x, t.p[0].y, t.p[1].x, t.p[1].y, t.p[2].x, t.p[2].y, olc::BLACK);
+                }
             }
         }
 
@@ -268,7 +250,7 @@ private:
 int main()
 {
     FPS game;
-    if (game.Construct(360, 360, 2, 2))
+    if (game.Construct(640, 480, 1, 1))
         game.Start();
 
     return 0;
